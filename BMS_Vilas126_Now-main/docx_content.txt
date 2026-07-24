@@ -1,0 +1,860 @@
+Cấu trúc tổ chức lại mã nguồn firmware BMS_Vilas126
+
+1. Mục tiêu tổ chức lại mã nguồn
+Firmware BMS_Vilas126 ban đầu có nhiều logic tập trung trong các file lớn, đặc biệt là main.c và các file giao tiếp như bq_bms_pylon.c, bq_bms_485.c, file header BQ76952 cũ. Cách tổ chức này giúp triển khai nhanh ở giai đoạn thử nghiệm, nhưng gây khó khăn khi mở rộng, kiểm thử, bảo trì và thương mại hóa sản phẩm.
+Việc tổ chức lại mã nguồn được thực hiện theo hướng phân lớp chức năng, tách biệt rõ:
+Lớp khởi tạo phần cứng do CubeMX sinh ra.
+Lớp ứng dụng điều phối vòng đời firmware.
+Lớp dịch vụ nghiệp vụ BMS.
+Lớp giao thức truyền thông.
+Lớp driver phần cứng.
+Lớp dùng chung.
+Lớp cấu hình hệ thống.
+Lớp tài liệu kỹ thuật.
+Mục tiêu chính là giữ lại logic cũ, nhưng phân rã lại thành các module có trách nhiệm rõ ràng, dễ kiểm thử, dễ thay thế và dễ mở rộng.
+
+2. Cấu trúc thư mục firmware sau khi tổ chức lại
+BMS_Vilas126_FW/├── Core/│   ├── Inc/│   │   ├── main.h│   │   ├── stm32f1xx_it.h│   │   └── stm32f1xx_hal_conf.h│   ││   └── Src/│       ├── main.c│       ├── stm32f1xx_it.c│       ├── stm32f1xx_hal_msp.c│       └── system_stm32f1xx.c│├── App/│   ├── app.c│   ├── app.h│   ├── sched.c│   ├── sched.h│   ├── state.c│   └── state.h│├── Svc/│   ├── meas.c│   ├── meas.h│   ├── prot.c│   ├── prot.h│   ├── fault.c│   ├── fault.h│   ├── ctrl.c│   ├── ctrl.h│   ├── soc.c│   ├── soc.h│   ├── soh.c│   ├── soh.h│   ├── bal.c│   ├── bal.h│   ├── store.c│   ├── store.h│   ├── pack.c│   ├── pack.h│   ├── inv.c│   ├── inv.h│   ├── hmi.c│   ├── hmi.h│   ├── ind.c│   └── ind.h│├── Proto/│   ├── pylon_can.c│   ├── pylon_can.h│   ├── pylon_485.c│   ├── pylon_485.h│   ├── dwin.c│   └── dwin.h│├── Drv/│   ├── bq76952.c│   ├── bq76952.h│   ├── bq_reg.h│   ├── w25qxx.c│   ├── w25qxx.h│   ├── ds1307.c│   ├── ds1307.h│   ├── can_drv.c│   ├── can_drv.h│   ├── rs485_drv.c│   ├── rs485_drv.h│   ├── uart_drv.c│   ├── uart_drv.h│   ├── led_drv.c│   └── led_drv.h│├── Common/│   ├── ctx.c│   ├── ctx.h│   ├── types.h│   ├── err.h│   ├── tick.c│   ├── tick.h│   ├── rb.c│   ├── rb.h│   ├── filter.c│   ├── filter.h│   ├── kalman.c│   ├── kalman.h│   ├── ntc.c│   └── ntc.h│├── Cfg/│   ├── bms_cfg.h│   ├── prot_cfg.h│   ├── comm_cfg.h│   ├── store_cfg.h│   ├── hw_cfg.h│   └── feat_cfg.h│├── Drivers/│   ├── CMSIS/│   └── STM32F1xx_HAL_Driver/│├── MDK-ARM/│   └── BMS_Vilas126.uvprojx│├── Doc/│   ├── arch.md│   ├── map.md│   ├── state.md│   ├── fault.md│   └── rule.md│└── BMS_Vilas126.ioc
+
+3. Nguyên tắc phân lớp kiến trúc
+Firmware được tổ chức lại theo 7 lớp chính.
+Lớp
+Thư mục
+Vai trò chính
+Hardware generated layer
+Core/, Drivers/
+Chứa mã do STM32CubeMX sinh ra, cấu hình clock, GPIO, I2C, UART, CAN, interrupt, HAL
+Application layer
+App/
+Điều phối vòng đời firmware, scheduler, state machine tổng thể
+Service layer
+Svc/
+Chứa các nghiệp vụ BMS: đo lường, bảo vệ, fault, điều khiển, SOC, SOH, cân bằng cell, lưu trữ, giao tiếp pack, inverter, HMI
+Protocol layer
+Proto/
+Đóng gói dữ liệu theo giao thức Pylon CAN, Pylon RS485, DWIN HMI
+Driver layer
+Drv/
+Làm việc trực tiếp với phần cứng: BQ76952, W25Qxx, DS1307, CAN, UART, RS485, LED, buzzer
+Common layer
+Common/
+Kiểu dữ liệu chung, context hệ thống, mã lỗi, tick, filter, Kalman, NTC, ring buffer
+Configuration layer
+Cfg/
+Tập trung toàn bộ tham số cấu hình hệ thống, bảo vệ, giao tiếp, phần cứng, feature flag
+Nguyên tắc quan trọng:
+Core không chứa logic BMS.App không truy cập trực tiếp phần cứng.Svc không gọi HAL trực tiếp.Proto chỉ đóng gói giao thức, không điều khiển phần cứng.Drv là lớp duy nhất được phép gọi HAL trực tiếp.Common không phụ thuộc vào nghiệp vụ cụ thể.Cfg chứa tham số, không chứa logic xử lý.
+
+4. Mô tả chi tiết từng phần
+4.1. Thư mục Core/
+Vai trò
+Core/ là khu vực do STM32CubeMX sinh ra, giữ nguyên vai trò khởi tạo nền tảng vi điều khiển STM32F103VET6. Sau khi refactor, Core/ không chứa logic nghiệp vụ BMS mà chỉ thực hiện:
+Khởi tạo HAL.
+Cấu hình clock.
+Khởi tạo GPIO, I2C, UART, CAN, SPI, IWDG, timer nếu có.
+Xử lý interrupt.
+Gọi tầng ứng dụng thông qua App_Init() và App_Run().
+Phân bổ file
+File
+Chức năng sau refactor
+Nguồn tách từ code cũ
+Core/Src/main.c
+Điểm vào chương trình. Chỉ gọi HAL_Init(), SystemClock_Config(), MX_xxx_Init(), sau đó gọi App_Init() và App_Run() trong vòng while(1)
+Từ main.c cũ, giữ phần khởi tạo MCU, tách toàn bộ logic BMS ra ngoài
+Core/Inc/main.h
+Khai báo GPIO, handle ngoại vi, macro phần cứng do CubeMX sinh ra
+Giữ từ CubeMX
+stm32f1xx_it.c/.h
+Xử lý ngắt hệ thống, ngắt ngoại vi
+Giữ từ CubeMX
+stm32f1xx_hal_msp.c
+Cấu hình MSP cho HAL peripheral
+Giữ từ CubeMX
+system_stm32f1xx.c
+Cấu hình hệ thống lõi Cortex-M3
+Giữ từ CubeMX
+Nguyên tắc sau refactor
+main.c không còn chứa các đoạn xử lý như đọc cell, tính SOC, gửi CAN, xử lý fault, bật/tắt MOS. Toàn bộ phần này được chuyển xuống App/, Svc/, Proto/, Drv/.
+
+4.2. Thư mục App/
+App/ là lớp điều phối cấp cao của firmware. Đây là nơi quản lý vòng đời hệ thống, scheduler và state machine.
+
+4.2.1. app.c / app.h
+Chức năng
+app.c là điểm vào của tầng ứng dụng. File này chịu trách nhiệm:
+Khởi tạo context toàn hệ thống.
+Khởi tạo các service chính của BMS.
+Khởi tạo các service phụ như CAN, RS485, HMI, Store, Indicator.
+Khởi tạo scheduler.
+Chạy vòng lặp ứng dụng thông qua App_Run().
+Hàm chính
+Hàm
+Chức năng
+Nguồn tách từ code cũ
+App_Init()
+Gom toàn bộ trình tự khởi tạo firmware BMS
+Tách từ phần khởi tạo trong main.c cũ
+App_Run()
+Gọi scheduler chạy các task định kỳ
+Tách từ vòng while(1) trong main.c cũ
+Ý nghĩa refactor
+Trước đây, main.c vừa khởi tạo phần cứng, vừa chạy logic BMS. Sau refactor:
+main.c -> chỉ chạy nền MCUapp.c  -> điều phối ứng dụng BMS
+
+4.2.2. sched.c / sched.h
+Chức năng
+sched.c là scheduler mềm, chia các tác vụ BMS theo chu kỳ thời gian:
+Chu kỳ
+Tác vụ
+50 ms
+Điều khiển output/FET thông qua Ctrl_Update()
+100 ms
+Đo lường, bảo vệ, fault, state, balancing
+200 ms
+Giao tiếp pack/parallel pack
+500 ms
+Giao tiếp inverter CAN và HMI DWIN
+1000 ms
+SOC, SOH, indicator
+5000 ms
+Lưu snapshot/trạng thái
+Hàm chính
+Hàm
+Chức năng
+Nguồn tách từ code cũ
+Sched_Init()
+Khởi tạo mốc tick cho scheduler
+Tách từ cách xử lý delay/tick trong main.c
+Sched_Run()
+Kiểm tra tick và gọi các task định kỳ
+Tách từ vòng lặp while(1) cũ
+sched_task_50ms()
+Gọi điều khiển output
+Tách từ logic điều khiển FET/MOS
+sched_task_100ms()
+Gọi đo lường, bảo vệ, state
+Tách từ logic đọc BQ và cập nhật trạng thái
+sched_task_500ms()
+Gửi CAN inverter, cập nhật HMI
+Tách từ logic gửi CAN/HMI trong code cũ
+sched_count_err()
+Ghi nhận lỗi runtime vào g_bms.health
+Bổ sung mới để phục vụ debug và thương mại hóa
+Ý nghĩa refactor
+Scheduler giúp thay thế cách viết nhiều logic nối tiếp trong while(1). Mỗi nhóm chức năng có chu kỳ riêng, dễ kiểm soát tải CPU và dễ debug.
+
+4.2.3. state.c / state.h
+Chức năng
+state.c quản lý state machine tổng thể của BMS:
+BMS_SLEEP
+BMS_STANDBY
+BMS_CHARGE
+BMS_DISCHARGE
+BMS_FAULT
+Hàm chính
+Hàm
+Chức năng
+Nguồn tách từ code cũ
+State_Init()
+Khởi tạo trạng thái ban đầu
+Tách từ biến trạng thái BMS trong code cũ
+State_Update()
+Cập nhật trạng thái theo fault, sleep, dòng sạc/xả
+Tách từ Update_BMS_State()
+State_Get()
+Trả về state hiện tại
+Tách từ Get_BMS_State() nếu có
+State_Set()
+Gán state thủ công khi cần
+Bổ sung để chuẩn hóa API
+Logic chính
+Nếu có fault nặng -> BMS_FAULTNếu sleep -> BMS_SLEEPNếu dòng sạc -> BMS_CHARGENếu dòng xả -> BMS_DISCHARGECòn lại -> BMS_STANDBY
+Ý nghĩa refactor
+state.c chỉ quyết định trạng thái, không điều khiển MOS và không gửi truyền thông. Việc điều khiển được chuyển sang ctrl.c.
+
+5. Thư mục Svc/
+Svc/ là lớp dịch vụ nghiệp vụ BMS. Đây là phần quan trọng nhất của firmware vì chứa các chức năng vận hành pin.
+
+5.1. meas.c / meas.h
+Chức năng
+Service đo lường, chịu trách nhiệm lấy dữ liệu điện áp, dòng điện, nhiệt độ từ BQ76952 và cập nhật vào context g_bms.meas.
+Hàm chính
+Hàm
+Chức năng
+Nguồn tách từ code cũ
+Meas_Init()
+Khởi tạo đo lường, gọi Bq_Init()
+Tách từ BQ769x2_Init() trong main.c
+Meas_Update()
+Đọc voltage/current/temp từ BQ
+Tách từ BQ769x2_ReadAllVoltages(), BQ769x2_ReadCurrent()
+meas_update_cell_minmax()
+Tính cell min, max, delta
+Tách từ các biến sys_min_cell_v, sys_max_cell_v, sys_min_cell_num, sys_max_cell_num
+meas_update_temp_minmax()
+Tính nhiệt độ min/max
+Tách từ logic xử lý mảng nhiệt độ cũ
+Dữ liệu cập nhật
+g_bms.meas.cell_mv[]g_bms.meas.pack_mvg_bms.meas.stack_mvg_bms.meas.ld_mvg_bms.meas.pack_mag_bms.meas.temp_c[]g_bms.meas.cell_min_mvg_bms.meas.cell_max_mvg_bms.meas.cell_diff_mv
+
+5.2. prot.c / prot.h
+Chức năng
+Service bảo vệ, đọc trạng thái bảo vệ từ BQ76952 và map sang fault nội bộ.
+Hàm chính
+Hàm
+Chức năng
+Nguồn tách từ code cũ
+Prot_Init()
+Khởi tạo service bảo vệ
+Tách từ phần init protection trong code cũ
+Prot_Update()
+Đọc SafetyStatus/PFStatus và cập nhật fault
+Tách từ các biến SafetyStatusA/B/C, PFStatusA/B/C/D
+prot_map_safety()
+Map bit safety của BQ sang fault
+Tách từ logic kiểm tra UV, OV, OCC, OCD, SCD
+prot_map_pf()
+Map permanent fail status
+Tách từ logic PFErrorsTriggered
+prot_map_sw_fault()
+Bảo vệ phần mềm như cell lệch, low battery, cell fail
+Tách từ logic alarm/fault phần mềm cũ
+Dữ liệu cập nhật
+g_bms.fault.uvg_bms.fault.ovg_bms.fault.occg_bms.fault.ocdg_bms.fault.scdg_bms.fault.otcg_bms.fault.otdg_bms.fault.utcg_bms.fault.utdg_bms.fault.pfg_bms.fault.cell_diffg_bms.fault.low_battg_bms.fault.cell_fail
+
+5.3. fault.c / fault.h
+Chức năng
+Service tổng hợp lỗi và alarm. fault.c không đọc BQ trực tiếp, mà lấy dữ liệu từ g_bms.fault do prot.c cập nhật.
+Hàm chính
+Hàm
+Chức năng
+Nguồn tách từ code cũ
+Fault_Init()
+Xóa fault/alarm ban đầu
+Tách từ phần reset biến fault/alarm
+Fault_Update()
+Tổng hợp fault, set alarm, set fault latch
+Tách từ Update_Alarms()
+Fault_ClearAll()
+Xóa toàn bộ fault/alarm
+Tách từ logic clear protection/fault
+fault_has_critical()
+Kiểm tra fault nặng
+Tách từ ProtectionsTriggered, PFErrorsTriggered
+fault_update_alarm()
+Map fault sang alarm
+Tách từ logic bms_alarms, alarms_bitmask
+Ý nghĩa refactor
+Tách prot.c và fault.c giúp rõ vai trò:
+prot.c  -> phát hiện faultfault.c -> tổng hợp fault/alarm/latch
+
+5.4. ctrl.c / ctrl.h
+Chức năng
+Service điều khiển output của BMS:
+CHG FET.
+DSG FET.
+Cho phép sạc.
+Cho phép xả.
+Điều kiện khóa FET khi fault.
+Sau này mở rộng precharge, dry contact, remote reset.
+Hàm chính
+Hàm
+Chức năng
+Nguồn tách từ code cũ
+Ctrl_Init()
+Khởi tạo trạng thái điều khiển
+Tách từ phần khởi tạo FET trong main.c
+Ctrl_Update()
+Tính toán allow và áp lệnh FET
+Tách từ logic FET on/off, charge/discharge allow
+ctrl_update_allow()
+Tính chg_allow, dsg_allow theo fault/state
+Tách từ logic khóa sạc/xả theo UV, OV, OCD, OCC, SCD
+ctrl_apply_fet()
+Gọi Bq_SetFet() để điều khiển FET
+Tách từ các lệnh ALL_FETS_ON, ALL_FETS_OFF, CHG_PCHG_OFF, DSG_PDSG_OFF
+Nguyên tắc an toàn
+Việc gửi lệnh FET thật được khóa bằng feature flag:
+FEAT_BQ_FET_APPLY = 0
+Chỉ bật khi đã xác nhận đo lường, protection và state đều đúng.
+
+5.5. soc.c / soc.h
+Chức năng
+Service tính toán SOC.
+Hàm chính
+Hàm
+Chức năng
+Nguồn tách từ code cũ
+Soc_Init()
+Khởi tạo SOC mặc định
+Tách từ biến SOC cũ
+Soc_Update()
+Cập nhật SOC định kỳ
+Tách từ Update_SOC_SOH_FromBQ()
+soc_estimate_by_voltage()
+Tạm ước lượng SOC theo điện áp
+Bổ sung tạm trong giai đoạn nền
+soc_clamp()
+Giới hạn SOC 0-100%
+Bổ sung chuẩn hóa an toàn
+Ghi chú
+Thuật toán SOC hiện là nền ban đầu. Khi hoàn thiện thương mại cần đối chiếu lại toàn bộ Update_SOC_SOH_FromBQ() cũ, đặc biệt:
+PassQRemaining capacityFull charge capacityCycle countCoulomb counter
+
+5.6. soh.c / soh.h
+Chức năng
+Service tính toán SOH.
+Hàm chính
+Hàm
+Chức năng
+Nguồn tách từ code cũ
+Soh_Init()
+Khởi tạo SOH mặc định
+Tách từ biến SOH cũ
+Soh_Update()
+Tính SOH theo full capacity
+Tách từ Update_SOC_SOH_FromBQ()
+soh_clamp()
+Giới hạn SOH 0-100%
+Bổ sung chuẩn hóa an toàn
+
+5.7. bal.c / bal.h
+Chức năng
+Service cân bằng cell.
+Hàm chính
+Hàm
+Chức năng
+Nguồn tách từ code cũ
+Bal_Init()
+Khởi tạo balancing service
+Tách từ phần balancing config
+Bal_Update()
+Kiểm tra điều kiện balancing
+Tách từ logic cân bằng cell cũ nếu có
+bal_is_allowed()
+Chỉ cho phép balancing khi không fault, cell đủ áp, delta đủ lớn
+Bổ sung để đảm bảo an toàn
+Ghi chú
+BQ76952 đã được cấu hình Data Memory cho balancing trong bq_init_bal_cfg(). Nếu code cũ có điều khiển balancing chủ động, phần đó sẽ tiếp tục được đưa vào Bal_Update().
+
+5.8. store.c / store.h
+Chức năng
+Service lưu trữ dữ liệu BMS vào flash ngoài W25Qxx.
+Hàm chính
+Hàm
+Chức năng
+Nguồn tách từ code cũ
+Store_Init()
+Khởi tạo W25Qxx và load snapshot
+Tách từ logic lưu cấu hình/trạng thái
+Store_Update()
+Lưu snapshot định kỳ
+Tách từ logic ghi flash cũ
+store_load_snapshot()
+Đọc SOC, SOH, cycle từ flash
+Bổ sung theo kiến trúc mới
+store_save_snapshot()
+Ghi SOC, SOH, cycle vào flash
+Bổ sung theo kiến trúc mới
+Feature flag
+FEAT_STORE_FLASH_APPLY
+Khi bằng 0, chưa ghi flash thật.
+
+5.9. pack.c / pack.h
+Chức năng
+Service giao tiếp pack/parallel pack qua RS485.
+Hàm chính
+Hàm
+Chức năng
+Nguồn tách từ code cũ
+Pack_Init()
+Khởi tạo RS485 driver và Pylon485 protocol
+Tách từ bq_bms_485.c
+Pack_Update()
+Cập nhật giao tiếp pack định kỳ
+Tách từ logic truyền thông RS485 cũ
+
+5.10. inv.c / inv.h
+Chức năng
+Service giao tiếp inverter qua CAN.
+Hàm chính
+Hàm
+Chức năng
+Nguồn tách từ code cũ
+Inv_Init()
+Khởi tạo CAN driver và Pylon CAN protocol
+Tách từ bq_bms_pylon.c
+Inv_Update()
+Gửi frame CAN định kỳ
+Tách từ BMS_Send_Pylon_CAN()
+
+5.11. hmi.c / hmi.h
+Chức năng
+Service giao tiếp màn hình DWIN HMI.
+Hàm chính
+Hàm
+Chức năng
+Nguồn tách từ code cũ
+Hmi_Init()
+Khởi tạo UART driver và DWIN protocol
+Tách từ logic HMI/DWIN cũ
+Hmi_Update()
+Cập nhật dữ liệu hiển thị định kỳ
+Tách từ logic gửi dữ liệu màn hình
+
+5.12. ind.c / ind.h
+Chức năng
+Service chỉ thị trạng thái qua LED/buzzer.
+Hàm chính
+Hàm
+Chức năng
+Nguồn tách từ code cũ
+Ind_Init()
+Khởi tạo LED driver
+Tách từ logic LED/buzzer cũ
+Ind_Update()
+Cập nhật LED/buzzer theo state/fault
+Tách từ logic chỉ thị trạng thái
+ind_update_led()
+Điều khiển LED RUN/FAULT/CHARGE/DISCHARGE
+Bổ sung theo kiến trúc mới
+ind_update_buzzer()
+Bật buzzer khi fault latch
+Tách từ logic cảnh báo âm thanh nếu có
+
+6. Thư mục Proto/
+Proto/ chứa các giao thức truyền thông. Nguyên tắc là protocol chỉ đóng gói dữ liệu, không gọi HAL trực tiếp.
+
+6.1. pylon_can.c / pylon_can.h
+Chức năng
+Đóng gói frame CAN theo giao thức Pylon/inverter.
+Hàm chính
+Hàm
+Chức năng
+Nguồn tách từ code cũ
+PylonCan_Init()
+Khởi tạo protocol CAN
+Tách từ bq_bms_pylon.c
+PylonCan_Update()
+Đóng gói và gửi các frame CAN định kỳ
+Tách từ BMS_Send_Pylon_CAN()
+pylon_pack_351()
+Pack giới hạn sạc/xả
+Tách từ frame limit trong bq_bms_pylon.c
+pylon_pack_355()
+Pack SOC/SOH
+Tách từ frame SOC/SOH
+pylon_pack_356()
+Pack voltage/current/temp
+Tách từ frame đo lường
+pylon_pack_359()
+Pack alarm/protection
+Tách từ frame protection
+pylon_pack_35c()
+Pack BMS status
+Tách từ frame status
+pylon_pack_35d()
+Pack debug health nội bộ
+Bổ sung mới để debug
+pylon_send_frame()
+Gửi frame thông qua CanDrv_SendStd()
+Tách phần gửi khỏi protocol
+
+6.2. pylon_485.c / pylon_485.h
+Chức năng
+Đóng gói giao tiếp RS485 cho pack hoặc parallel pack.
+Hàm chính
+Hàm
+Chức năng
+Nguồn tách từ code cũ
+Pylon485_Init()
+Khởi tạo protocol RS485
+Tách từ bq_bms_485.c
+Pylon485_Update()
+Đóng gói/gửi frame định kỳ
+Tách từ logic gửi RS485 cũ
+pylon485_pack_status()
+Đóng gói frame trạng thái nền
+Tách từ frame status RS485 cũ
+pylon485_checksum()
+Tính checksum frame
+Tách từ checksum cũ nếu có
+pylon485_send()
+Gửi frame qua Rs485Drv_Send()
+Tách phần gửi khỏi protocol
+
+6.3. dwin.c / dwin.h
+Chức năng
+Đóng gói frame DWIN HMI.
+Hàm chính
+Hàm
+Chức năng
+Nguồn tách từ code cũ
+Dwin_Init()
+Khởi tạo protocol DWIN
+Tách từ logic HMI/DWIN cũ
+Dwin_Update()
+Cập nhật các frame hiển thị
+Tách từ logic update màn hình
+dwin_pack_basic_status()
+Pack voltage/current/SOC/state
+Tách từ dữ liệu hiển thị cơ bản
+dwin_pack_health()
+Pack lỗi runtime và fault
+Bổ sung mới để hỗ trợ debug
+dwin_send()
+Gửi frame qua UartDrv_Send()
+Tách phần gửi khỏi protocol
+dwin_put_u16()
+Ghi dữ liệu dạng big endian cho VP DWIN
+Tách từ quy tắc frame DWIN
+
+7. Thư mục Drv/
+Drv/ là lớp driver phần cứng. Đây là lớp duy nhất được phép gọi HAL trực tiếp.
+
+7.1. bq76952.c / bq76952.h / bq_reg.h
+Chức năng
+Driver cho IC BMS TI BQ76952.
+Nhóm hàm chính
+Nhóm hàm
+Chức năng
+Nguồn tách từ code cũ
+Bq_Init()
+Khởi tạo BQ76952 theo sequence cũ
+Tách từ BQ769x2_Init()
+Bq_Unlock()
+Unlock/full access BQ
+Tách từ Unlock_BQ76952()
+Bq_EnterCfgUpdate()
+Vào CFGUPDATE
+Tách từ CommandSubcommands(SET_CFGUPDATE)
+Bq_ExitCfgUpdate()
+Thoát CFGUPDATE
+Tách từ CommandSubcommands(EXIT_CFGUPDATE)
+bq_init_calib()
+Cấu hình calibration voltage/current
+Tách từ nhóm register calibration trong BQ769x2_Init()
+bq_init_hw_cfg()
+Cấu hình power, communication, pin, cell mode
+Tách từ nhóm Settings:Configuration
+bq_init_prot_cfg()
+Cấu hình protection, threshold, delay, recovery
+Tách từ nhóm protection trong BQ769x2_Init()
+bq_init_fet_cfg()
+Cấu hình FET behavior
+Tách từ nhóm FET config
+bq_init_bal_cfg()
+Cấu hình cell balancing
+Tách từ nhóm balancing
+bq_init_sleep_cfg()
+Cấu hình sleep/shutdown
+Tách từ nhóm power/sleep
+bq_init_temp_cfg()
+Cấu hình temperature model
+Tách từ nhóm temperature calibration/model
+bq_init_pf_cfg()
+Cấu hình permanent fail
+Tách từ nhóm PF detail
+bq_init_security_cfg()
+Cấu hình security key
+Tách từ nhóm security
+Bq_ReadVoltages()
+Đọc 16 cell, stack, pack, LD voltage
+Tách từ BQ769x2_ReadAllVoltages()
+Bq_ReadCurrent()
+Đọc dòng điện pack
+Tách từ BQ769x2_ReadCurrent()
+Bq_ReadTemps()
+Đọc nhiệt độ internal/TS/FET
+Tách từ logic đọc temperature
+Bq_ReadStatus()
+Đọc SafetyStatus/PFStatus/BatteryStatus/FETStatus
+Tách từ logic đọc status cũ
+Bq_SetFet()
+Điều khiển CHG/DSG FET
+Tách từ ALL_FETS_ON, ALL_FETS_OFF, CHG_PCHG_OFF, DSG_PDSG_OFF
+Bq_ReadPassQ()
+Đọc PassQ/coulomb counter
+Tách từ BQ769x2_ReadPassQ()
+Bq_SetRegister()
+Ghi Data Memory register
+Tách từ BQ769x2_SetRegister()
+Bq_Subcmd()
+Gửi subcommand
+Tách từ CommandSubcommands()
+Bq_ReadWord()
+Đọc direct command 2 byte
+Tách từ direct command cũ
+Bq_Crc8(), Bq_Checksum()
+CRC/checksum BQ
+Tách từ hàm CRC/checksum cũ
+bq_i2c_bus_recovery()
+Phục hồi I2C bus
+Tách từ I2C_Bus_Recovery()
+Vai trò của bq_reg.h
+bq_reg.h chứa toàn bộ địa chỉ register, subcommand, direct command của BQ76952, được tách từ header cũ BQ769x2Header.h.
+
+7.2. can_drv.c / can_drv.h
+Chức năng
+Driver wrapper cho CAN.
+Hàm
+Chức năng
+Nguồn tách từ code cũ
+CanDrv_Init()
+Start CAN nếu bật feature
+Tách từ init CAN trong main.c
+CanDrv_SendStd()
+Gửi CAN standard frame
+Tách từ logic HAL_CAN_AddTxMessage() trong code cũ
+Feature flag
+FEAT_CAN_TX_APPLY
+
+7.3. rs485_drv.c / rs485_drv.h
+Chức năng
+Driver wrapper cho RS485 qua UART.
+Hàm
+Chức năng
+Nguồn tách từ code cũ
+Rs485Drv_Init()
+Khởi tạo RS485 driver
+Tách từ init UART/RS485
+Rs485Drv_Send()
+Gửi dữ liệu RS485
+Tách từ HAL_UART_Transmit() trong bq_bms_485.c hoặc main.c
+Feature flag
+FEAT_RS485_TX_APPLY
+
+7.4. uart_drv.c / uart_drv.h
+Chức năng
+Driver UART dùng chung cho DWIN/debug/RS485.
+Hàm
+Chức năng
+Nguồn tách từ code cũ
+UartDrv_Init()
+Khởi tạo wrapper UART
+Tách từ init UART trong main.c
+UartDrv_Send()
+Gửi UART theo port logic
+Tách từ các lệnh HAL_UART_Transmit() cũ
+uart_get_handle()
+Map port logic sang huart1, huart2, huart3
+Bổ sung để chuẩn hóa
+
+7.5. w25qxx.c / w25qxx.h
+Chức năng
+Driver flash ngoài W25Qxx.
+Hàm
+Chức năng
+Nguồn tách từ code cũ
+W25qxx_Init()
+Khởi tạo flash
+Tách từ logic SPI flash cũ
+W25qxx_Read()
+Đọc dữ liệu từ flash
+Tách từ hàm đọc W25Qxx cũ
+W25qxx_Write()
+Ghi dữ liệu vào flash
+Tách từ hàm erase/program W25Qxx cũ
+Feature flag
+FEAT_STORE_FLASH_APPLY
+
+7.6. ds1307.c / ds1307.h
+Chức năng
+Driver RTC DS1307.
+Hàm
+Chức năng
+Nguồn tách từ code cũ
+Ds1307_Init()
+Khởi tạo RTC
+Tách từ logic RTC nếu có
+Ds1307_GetTime()
+Đọc thời gian
+Tách từ logic đọc DS1307
+Ds1307_SetTime()
+Ghi thời gian
+Tách từ logic ghi DS1307
+ds1307_bcd_to_dec()
+Convert BCD sang decimal
+Bổ sung cho chuẩn DS1307
+ds1307_dec_to_bcd()
+Convert decimal sang BCD
+Bổ sung cho chuẩn DS1307
+
+7.7. led_drv.c / led_drv.h
+Chức năng
+Driver LED/buzzer.
+Hàm
+Chức năng
+Nguồn tách từ code cũ
+LedDrv_Init()
+Khởi tạo driver LED/buzzer
+Tách từ logic GPIO LED/buzzer
+LedDrv_Set()
+Bật/tắt LED theo ID logic
+Tách từ logic điều khiển GPIO
+LedDrv_BuzzerSet()
+Bật/tắt buzzer
+Tách từ logic buzzer cũ
+
+8. Thư mục Common/
+Common/ chứa phần dùng chung toàn firmware.
+File
+Chức năng
+Nguồn tách từ code cũ
+ctx.c/.h
+Quản lý context global g_bms
+Chuẩn hóa lại từ các biến global rời rạc trong code cũ
+types.h
+Định nghĩa struct dữ liệu BMS
+Gom các biến global như voltage/current/fault/alarm/SOC/state
+err.h
+Định nghĩa mã lỗi err_t
+Bổ sung mới để chuẩn hóa return code
+tick.c/.h
+Wrapper HAL_GetTick()
+Tách từ cách dùng tick/delay trong main.c
+rb.c/.h
+Ring buffer UART/CAN nếu cần
+Bổ sung cho truyền thông receive
+filter.c/.h
+Bộ lọc dữ liệu đo
+Tách từ logic average/filter nếu có
+kalman.c/.h
+Kalman filter cho đo lường/SOC nếu cần
+Bổ sung/chuẩn hóa
+ntc.c/.h
+Bảng hoặc hàm tính NTC
+Tách từ logic nhiệt độ cũ
+
+9. Thư mục Cfg/
+Cfg/ chứa toàn bộ tham số cấu hình, tránh hard-code rải rác trong source.
+File
+Chức năng
+bms_cfg.h
+Tham số pack: số cell, điện áp đầy/cạn, dung lượng danh định, ngưỡng dòng nghỉ
+prot_cfg.h
+Ngưỡng bảo vệ phần mềm
+comm_cfg.h
+Cấu hình CAN, RS485, UART, địa chỉ pack, baudrate
+store_cfg.h
+Địa chỉ lưu flash, magic, version
+hw_cfg.h
+Mapping phần cứng GPIO/UART/CAN/I2C/SPI
+feat_cfg.h
+Bật/tắt từng tính năng tác động phần cứng thật
+Feature flag quan trọng:
+FEAT_BQ_INIT_APPLYFEAT_BQ_MEAS_READFEAT_BQ_FET_APPLYFEAT_CAN_TX_APPLYFEAT_RS485_TX_APPLYFEAT_DWIN_TX_APPLYFEAT_STORE_FLASH_APPLYFEAT_RTC_APPLYFEAT_LED_APPLYFEAT_BUZZER_APPLYFEAT_IWDG_APPLY
+
+10. Thư mục Doc/
+Doc/ là nơi lưu tài liệu kỹ thuật đi kèm firmware.
+File
+Nội dung
+arch.md
+Mô tả kiến trúc firmware
+map.md
+Bảng mapping code cũ sang code mới
+state.md
+Mô tả state machine
+fault.md
+Mô tả fault/alarm/protection
+rule.md
+Quy tắc coding, naming, refactor, test
+
+11. Bảng truy vết tổng hợp từ code cũ sang code mới
+Code cũ
+Code mới
+Ý nghĩa
+main.c startup
+Core/Src/main.c, App/app.c
+Tách phần khởi tạo MCU và khởi tạo BMS
+main.c while(1)
+App/sched.c
+Tách vòng lặp chính thành scheduler
+BQ769x2_Init()
+Drv/bq76952.c::Bq_Init() và các bq_init_xxx()
+Tách sequence init BQ thành nhóm cấu hình
+BQ769x2_SetRegister()
+Bq_SetRegister(), bq_set_reg()
+Chuẩn hóa ghi Data Memory
+CommandSubcommands()
+Bq_Subcmd()
+Chuẩn hóa gửi subcommand
+BQ769x2_ReadAllVoltages()
+Bq_ReadVoltages(), Meas_Update()
+Tách đọc điện áp vào driver và service
+BQ769x2_ReadCurrent()
+Bq_ReadCurrent(), Meas_Update()
+Tách đọc dòng
+Logic đọc temperature
+Bq_ReadTemps(), Meas_Update()
+Tách đọc nhiệt độ
+Update_BMS_State()
+App/state.c::State_Update()
+Tách state machine
+Update_Alarms()
+Svc/fault.c::Fault_Update()
+Tách fault/alarm
+ProtectionsTriggered, PFErrorsTriggered
+Svc/prot.c, Svc/fault.c
+Tách phát hiện và tổng hợp fault
+FET on/off logic
+Svc/ctrl.c, Drv/bq76952.c::Bq_SetFet()
+Tách điều khiển MOS
+Update_SOC_SOH_FromBQ()
+Svc/soc.c, Svc/soh.c
+Tách SOC và SOH thành hai service
+Cell balancing config/logic
+Svc/bal.c, bq_init_bal_cfg()
+Tách balancing
+bq_bms_pylon.c
+Svc/inv.c, Proto/pylon_can.c, Drv/can_drv.c
+Tách service, protocol, driver CAN
+bq_bms_485.c
+Svc/pack.c, Proto/pylon_485.c, Drv/rs485_drv.c
+Tách RS485 pack
+HMI/DWIN logic
+Svc/hmi.c, Proto/dwin.c, Drv/uart_drv.c
+Tách HMI
+W25Qxx logic
+Svc/store.c, Drv/w25qxx.c
+Tách storage
+DS1307 logic
+Drv/ds1307.c
+Tách RTC
+LED/Buzzer logic
+Svc/ind.c, Drv/led_drv.c
+Tách indicator
+Biến global rời rạc
+Common/ctx.c, Common/types.h
+Gom vào context g_bms
+Delay/tick rải rác
+Common/tick.c
+Chuẩn hóa tick
+Header BQ cũ
+Drv/bq_reg.h
+Chuẩn hóa register map
+
+12. Luồng xử lý firmware sau refactor
+Luồng khởi động:
+main.c-> HAL_Init()-> SystemClock_Config()-> MX_GPIO_Init()-> MX_I2C_Init()-> MX_CAN_Init()-> MX_UART_Init()-> App_Init()   -> Ctx_Init()   -> Meas_Init()      -> Bq_Init()   -> Prot_Init()   -> Fault_Init()   -> State_Init()   -> Ctrl_Init()   -> Soc_Init()   -> Soh_Init()   -> Bal_Init()   -> Store_Init()   -> Pack_Init()   -> Inv_Init()   -> Hmi_Init()   -> Ind_Init()   -> Sched_Init()-> while(1)   -> App_Run()      -> Sched_Run()
+Luồng vận hành định kỳ:
+50ms:Ctrl_Update()100ms:Meas_Update()-> Prot_Update()-> Fault_Update()-> State_Update()-> Bal_Update()200ms:Pack_Update()500ms:Inv_Update()Hmi_Update()1000ms:Soc_Update()Soh_Update()Ind_Update()5000ms:Store_Update()
+
+13. Ý nghĩa kỹ thuật của việc tổ chức lại
+Sau khi tổ chức lại, firmware đạt các lợi ích:
+Dễ hiểu hơn: mỗi file có một trách nhiệm rõ ràng.
+Dễ debug hơn: lỗi đo lường, lỗi protection, lỗi CAN, lỗi HMI được tách riêng.
+Dễ kiểm thử hơn: có thể bật/tắt từng feature bằng feat_cfg.h.
+An toàn hơn: FET, CAN, RS485, flash, buzzer không tự động tác động phần cứng nếu chưa bật feature.
+Dễ mở rộng hơn: thêm inverter protocol, thêm HMI page, thêm storage version không ảnh hưởng lõi BMS.
+Dễ thương mại hóa hơn: kiến trúc có phân lớp rõ, phù hợp bảo trì dài hạn.
+Dễ truy vết logic cũ: mỗi module đều có mapping từ function cũ sang function mới.
+
+14. Các phần cần tiếp tục đối chiếu trước khi chốt thương mại
+Dù kiến trúc đã được tổ chức lại, các phần sau cần tiếp tục đối chiếu 100% với code cũ và test thực tế:
+1. BQ76952 init register2. Scale voltage/current/temp3. Chiều dòng sạc/xả4. State machine5. Fault recovery6. FET/precharge/predischarge7. SOC/SOH theo PassQ/coulomb counter8. CAN Pylon frame bit mapping9. RS485 checksum/command10. DWIN VP address thực tế11. W25Qxx erase/write/read12. LED/Buzzer GPIO thực tế13. Watchdog/recovery14. Test fault thực tế15. Test tải thật và inverter thật
+
+15. Kết luận
+Cấu trúc mới của firmware BMS_Vilas126 đã chuyển từ mô hình tập trung trong main.c và một số file giao tiếp lớn sang mô hình phân lớp rõ ràng:
+Core  -> nền MCUApp   -> điều phối ứng dụngSvc   -> nghiệp vụ BMSProto -> giao thức truyền thôngDrv   -> driver phần cứngCommon -> dùng chungCfg   -> cấu hìnhDoc   -> tài liệu kỹ thuật
+Cách tổ chức này giúp firmware dễ đọc, dễ kiểm thử, dễ kiểm soát an toàn và phù hợp hơn với yêu cầu phát triển sản phẩm BMS thương mại dùng BQ76952, STM32F103VET6, CAN inverter, RS485 parallel pack, DWIN HMI, W25Qxx flash và DS1307 RTC.

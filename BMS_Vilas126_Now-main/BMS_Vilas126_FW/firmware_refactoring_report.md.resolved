@@ -1,0 +1,109 @@
+# Báo Cáo Tái Cấu Trúc Mã Nguồn Firmware BMS Vilas126
+
+Báo cáo này trình bày kết quả tái cấu trúc thư mục mã nguồn firmware BMS Vilas126 nhúng cho vi điều khiển STM32. Toàn bộ mã nguồn cũ đã được tổ chức lại thành các phân lớp độc lập, tối ưu hóa hiệu năng, giảm sự phụ thuộc lẫn nhau (coupling) và tăng tính tái sử dụng.
+
+---
+
+## 1. Kiến Trúc Phân Lớp Mới (Architecture Layers)
+
+Sơ đồ dưới đây mô tả kiến trúc phân lớp mới của dự án:
+
+```mermaid
+graph TD
+    subgraph Svc [Service Layer]
+        PackSvc[Svc/pack.c]
+    end
+
+    subgraph Proto [Protocol Layer]
+        CanProto[Proto/can_proto.c]
+        PylonProto[Proto/pylon_485.c]
+    end
+
+    subgraph Drv [Driver Layer]
+        CanDrv[Drv/can_drv.c]
+        Rs485Drv[Drv/rs485_drv.c]
+    end
+
+    subgraph Cfg [Configuration Layer]
+        FeatCfg[Cfg/feat_cfg.h]
+    end
+
+    PackSvc --> PylonProto
+    PackSvc --> Rs485Drv
+    CanProto --> CanDrv
+    PylonProto --> FeatCfg
+    CanProto --> FeatCfg
+    CanDrv --> FeatCfg
+    Rs485Drv --> FeatCfg
+```
+
+### Chi tiết các phân lớp:
+1.  **Lớp Dịch Vụ (Service Layer - `Svc/`)**: Điều khiển logic hệ thống (máy trạng thái tự gán địa chỉ, xử lý đồng bộ hóa Master-Slave).
+2.  **Lớp Giao Thức (Protocol Layer - `Proto/`)**: Mã hóa và giải mã các khung tin truyền nhận. Không can thiệp vào thanh ghi phần cứng hoặc thanh ghi điều khiển cổng giao tiếp.
+3.  **Lớp Trình Điều Khiển (Driver Layer - `Drv/`)**: Đóng gói các hàm gọi API HAL của STM32 cho CAN Bus và RS485 (UART).
+4.  **Lớp Cấu Hình (Configuration Layer - `Cfg/`)**: Quản lý macro định nghĩa điều kiện biên dịch (ví dụ: tắt bớt tính năng khi biên dịch cho Bootloader).
+
+---
+
+## 2. Ánh Xạ Mã Nguồn (Code Mapping Table)
+
+| File Cũ trong `Core/` | File Mới trong `BMS_Vilas126_FW/` | Vai Trò & Cải Tiến |
+| :--- | :--- | :--- |
+| `bq_bms_pylon.c` / `.h` | `Proto/can_proto.c` / `.h` | Tách biệt hoàn toàn phần định dạng dữ liệu CAN (Pylon/Victron/Growatt/Deye) ra khỏi code điều khiển phần cứng. |
+| `bq_bms_pylon.c` / `.h` | `Drv/can_drv.c` / `.h` | Đóng gói cấu hình Bộ lọc CAN (CAN Filter), truyền dữ liệu CAN, và ngắt nhận CAN. |
+| `bq_bms_485.c` / `.h` | `Proto/pylon_485.c` / `.h` | Chứa các hàm chuyển đổi ASCII Hex, tính toán checksum LCHKSUM/CHKSUM và đóng gói dữ liệu Pylon RS485. |
+| `bq_bms_485.c` / `.h` | `Drv/rs485_drv.c` / `.h` | Điều khiển GPIO điều hướng chiều thu/phát (DE/RE) UART4/5 và cấu hình tốc độ Baudrate động. |
+| `bq_bms_485.c` / `.h` | `Svc/pack.c` / `.h` | Quản lý máy trạng thái Auto-addressing, xử lý phân tích byte ngắt nhận, đồng bộ dữ liệu song song. |
+| `main.h` | `Cfg/feat_cfg.h` | Quản lý cấu hình biên dịch (macro `IS_BOOTLOADER`) giúp thu gọn kích thước firmware. |
+
+---
+
+## 3. Danh Sách Tệp Tin Đã Tạo
+
+Tất cả các tệp tin mới đã được tạo thành công trong thư mục mới `/media/nvhieu/Data/DATA/10.Rangdong/BMS_Vilas126_Now/BMS_Vilas126_Bootloader/BMS_Vilas126_FW`:
+
+1.  **Cấu hình**: [feat_cfg.h](file:///media/nvhieu/Data/DATA/10.Rangdong/BMS_Vilas126_Now/BMS_Vilas126_Bootloader/BMS_Vilas126_FW/Cfg/feat_cfg.h)
+2.  **Driver CAN**: [can_drv.h](file:///media/nvhieu/Data/DATA/10.Rangdong/BMS_Vilas126_Now/BMS_Vilas126_Bootloader/BMS_Vilas126_FW/Drv/can_drv.h) | [can_drv.c](file:///media/nvhieu/Data/DATA/10.Rangdong/BMS_Vilas126_Now/BMS_Vilas126_Bootloader/BMS_Vilas126_FW/Drv/can_drv.c)
+3.  **Driver RS485**: [rs485_drv.h](file:///media/nvhieu/Data/DATA/10.Rangdong/BMS_Vilas126_Now/BMS_Vilas126_Bootloader/BMS_Vilas126_FW/Drv/rs485_drv.h) | [rs485_drv.c](file:///media/nvhieu/Data/DATA/10.Rangdong/BMS_Vilas126_Now/BMS_Vilas126_Bootloader/BMS_Vilas126_FW/Drv/rs485_drv.c)
+4.  **Giao thức CAN**: [can_proto.h](file:///media/nvhieu/Data/DATA/10.Rangdong/BMS_Vilas126_Now/BMS_Vilas126_Bootloader/BMS_Vilas126_FW/Proto/can_proto.h) | [can_proto.c](file:///media/nvhieu/Data/DATA/10.Rangdong/BMS_Vilas126_Now/BMS_Vilas126_Bootloader/BMS_Vilas126_FW/Proto/can_proto.c)
+5.  **Giao thức Pylon RS485**: [pylon_485.h](file:///media/nvhieu/Data/DATA/10.Rangdong/BMS_Vilas126_Now/BMS_Vilas126_Bootloader/BMS_Vilas126_FW/Proto/pylon_485.h) | [pylon_485.c](file:///media/nvhieu/Data/DATA/10.Rangdong/BMS_Vilas126_Now/BMS_Vilas126_Bootloader/BMS_Vilas126_FW/Proto/pylon_485.c)
+6.  **Dịch vụ Pack**: [pack.h](file:///media/nvhieu/Data/DATA/10.Rangdong/BMS_Vilas126_Now/BMS_Vilas126_Bootloader/BMS_Vilas126_FW/Svc/pack.h) | [pack.c](file:///media/nvhieu/Data/DATA/10.Rangdong/BMS_Vilas126_Now/BMS_Vilas126_Bootloader/BMS_Vilas126_FW/Svc/pack.c)
+7.  **Tài liệu chi tiết**: [README.md](file:///media/nvhieu/Data/DATA/10.Rangdong/BMS_Vilas126_Now/BMS_Vilas126_Bootloader/BMS_Vilas126_FW/README.md)
+
+---
+
+## 4. Hướng Dẫn Tích Hợp (Integration Steps)
+
+> [!IMPORTANT]
+> Hãy vô hiệu hóa hoặc xóa các tệp tin cũ khỏi cây thư mục Project Keil C / STM32CubeIDE (`bq_bms_485.c`, `bq_bms_pylon.c`) để tránh lỗi biên dịch do trùng lặp định nghĩa.
+
+### 4.1. Thêm Thư Mục Include
+Cấu hình IDE của bạn để trỏ đến thư mục `BMS_Vilas126_FW` làm Include Path.
+
+### 4.2. Khai Báo Ngắt Nhận Dữ Liệu
+Cập nhật ngắt nhận dữ liệu của UART4/5 trong `HAL_UART_RxCpltCallback`:
+```c
+#include "Svc/pack.h"
+#include "Drv/rs485_drv.h"
+
+void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart) {
+    if (huart->Instance == UART4) {
+        Pack_Svc_Process_Byte(RS485_PORT_UART4, rx_byte_uart4);
+        RS485_Drv_Start_Rx_IT(RS485_PORT_UART4, &rx_byte_uart4);
+    } else if (huart->Instance == UART5) {
+        Pack_Svc_Process_Byte(RS485_PORT_UART5, rx_byte_uart5);
+        RS485_Drv_Start_Rx_IT(RS485_PORT_UART5, &rx_byte_uart5);
+    }
+}
+```
+
+### 4.3. Gọi Hàm Cập Nhật Định Kỳ
+Thêm lệnh gọi hàm trong vòng lặp `while (1)` của main:
+```c
+#include "Svc/pack.h"
+
+while (1) {
+    Pack_Svc_Update();
+    // Các logic hệ thống khác...
+}
+```
