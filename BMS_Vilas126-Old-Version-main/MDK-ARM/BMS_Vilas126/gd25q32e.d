@@ -1,0 +1,12 @@
+bms_vilas126\gd25q32e.o: ..\Core\Src\gd25q32e.c
+bms_vilas126\gd25q32e.o: ../Core/Inc/gd25q32e.h
+bms_vilas126\gd25q32e.o: C:\Keil_v5\ARM\ARMCC\Bin\..\include\stdint.h
+bms_vilas126\gd25q32e.o: C:\Keil_v5\ARM\ARMCC\Bin\..\include\stdbool.h
+bms_vilas126\gd25q32e.o: C:\Users\Admin\AppData\Local\Arm\Packs\Keil\STM32F1xx_DFP\2.4.1\Device\Include\stm32f10x.h
+bms_vilas126\gd25q32e.o: .\RTE\_BMS_Vilas126\RTE_Components.h
+bms_vilas126\gd25q32e.o: ../Drivers/CMSIS/Include/core_cm3.h
+bms_vilas126\gd25q32e.o: ../Drivers/CMSIS/Include/cmsis_version.h
+bms_vilas126\gd25q32e.o: ../Drivers/CMSIS/Include/cmsis_compiler.h
+bms_vilas126\gd25q32e.o: ../Drivers/CMSIS/Include/cmsis_armcc.h
+bms_vilas126\gd25q32e.o: C:\Users\Admin\AppData\Local\Arm\Packs\Keil\STM32F1xx_DFP\2.4.1\Device\Include\system_stm32f10x.h
+bms_vilas126\gd25q32e.o: C:\Keil_v5\ARM\ARMCC\Bin\..\include\string.h
